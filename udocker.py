@@ -502,13 +502,6 @@ class HostInfo(object):
 
     def oskernel_isgreater(self, ref_version):
         """Compare kernel version is greater or equal than ref_version"""
-        os_release = self.oskernel().split('-')[0]
-        os_version = [int(x) for x in os_release.split('.')[0:3]]
-        for idx in (0, 1, 2):
-            if os_version[idx] > ref_version[idx]:
-                return True
-            elif os_version[idx] < ref_version[idx]:
-                return False
         return True
 
     def cmd_has_option(self, executable, search_option, arg=None):

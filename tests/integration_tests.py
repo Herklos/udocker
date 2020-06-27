@@ -58,10 +58,7 @@ HOME = set_env()
 
 def match_str(find_exp, where):
     """find_exp regexp is present in buffer where"""
-    for item in where:
-        if re.search(find_exp, str(item)):
-            return True
-    return False
+    return any(re.search(find_exp, str(item)) for item in where)
 
 def not_match_str(find_exp, where):
     """find_exp regexp is not present in buffer where"""
@@ -70,10 +67,7 @@ def not_match_str(find_exp, where):
 
 def find_str(find_exp, where):
     """find_exp is present in buffer where"""
-    for item in where:
-        if find_exp in str(item):
-            return True
-    return False
+    return any(find_exp in str(item) for item in where)
 
 
 def choose_find(expect_prefix):

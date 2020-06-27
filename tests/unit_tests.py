@@ -18,6 +18,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+
 import grp
 import os
 import pwd
@@ -50,10 +51,7 @@ STDOUT = sys.stdout
 STDERR = sys.stderr
 UDOCKER_TOPDIR = "test_topdir"
 
-if sys.version_info[0] >= 3:
-    BUILTINS = "builtins"
-else:
-    BUILTINS = "__builtin__"
+BUILTINS = "builtins" if sys.version_info[0] >= 3 else "__builtin__"
 
 
 def set_env():
@@ -630,7 +628,7 @@ class KeyStoreTestCase(unittest.TestCase):
         mock_shred.return_value = True
         kstore = udocker.KeyStore("filename")
         self.assertFalse(kstore.put("", "", ""))
-        mock_readall.return_value = dict()
+        mock_readall.return_value = {}
         kstore.put(self.url, self.auth, self.email)
         mock_writeall.assert_called_once_with(self.credentials)
 
@@ -801,14 +799,14 @@ class ChkSUMTestCase(unittest.TestCase):
 
     def test_03__hashlib_sha256(self):
         """Test03 ChkSUM()._hashlib_sha256()."""
-        sha256sum = (
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
         cksum = udocker.ChkSUM()
         file_data = StringIO("qwerty")
         with mock.patch(BUILTINS + '.open', mock.mock_open()) as mopen:
             mopen.return_value.__iter__ = (
                 lambda self: iter(file_data.readline, ''))
             status = cksum._hashlib_sha256("filename")
+            sha256sum = (
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
             self.assertEqual(status, sha256sum)
 
     # def test_04__hashlib_sha512(self):
@@ -855,25 +853,25 @@ class ChkSUMTestCase(unittest.TestCase):
 
     def test_10_hash(self):
         """Test10 ChkSUM().hash()."""
-        sha256sum = (
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
         cksum = udocker.ChkSUM()
         file_data = StringIO("qwerty")
         with mock.patch(BUILTINS + '.open', mock.mock_open()) as mopen:
             mopen.return_value.__iter__ = (
                 lambda self: iter(file_data.readline, ''))
             status = cksum.hash("filename", "sha256")
+            sha256sum = (
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
             self.assertEqual(status, sha256sum)
 
-        sha512sum = ("cf83e1357eefb8bdf1542850d66d8007d620e4050b"
-                     "5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff831"
-                     "8d2877eec2f63b931bd47417a81a538327af927da3e")
         cksum = udocker.ChkSUM()
         file_data = StringIO("qwerty")
         with mock.patch(BUILTINS + '.open', mock.mock_open()) as mopen:
             mopen.return_value.__iter__ = (
                 lambda self: iter(file_data.readline, ''))
             status = cksum.hash("filename", "sha512")
+            sha512sum = ("cf83e1357eefb8bdf1542850d66d8007d620e4050b"
+                         "5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff831"
+                         "8d2877eec2f63b931bd47417a81a538327af927da3e")
             self.assertEqual(status, sha512sum)
 
 
@@ -2279,13 +2277,13 @@ class NixAuthenticationTestCase(unittest.TestCase):
 
     def test_02__user_in_subid(self):
         """Test02 NixAuthentication()._user_in_subid()."""
-        sfile = "/etc/subuid"
         auth = udocker.NixAuthentication()
         auth.passwd_file = ""
         subid_line = StringIO('root:296608:65536')
         with mock.patch(BUILTINS + '.open') as mopen:
             mopen.return_value.__iter__ = (
                 lambda self: iter(subid_line.readline, ''))
+            sfile = "/etc/subuid"
             name = auth._user_in_subid(sfile, "root")
             self.assertEqual(name, [('296608', '65536')])
 
@@ -3614,11 +3612,7 @@ class PRootEngineTestCase(unittest.TestCase):
         mock_check_env.return_value = False
         prex = udocker.PRootEngine(mock_local)
         prex.proot_noseccomp = False
-        prex.opt = dict()
-        prex.opt["env"] = []
-        prex.opt["kernel"] = ""
-        prex.opt["netcoop"] = False
-        prex.opt["portsmap"] = []
+        prex.opt = {"env": [], "kernel": "", "netcoop": False, "portsmap": []}
         status = prex.run("CONTAINERID")
         self.assertEqual(status, 4)
 
@@ -3632,14 +3626,16 @@ class PRootEngineTestCase(unittest.TestCase):
         prex = udocker.PRootEngine(mock_local)
         prex.proot_exec = "/.udocker/bin/proot"
         prex.proot_noseccomp = False
-        prex.opt = dict()
-        prex.opt["env"] = []
-        prex.opt["kernel"] = ""
-        prex.opt["netcoop"] = False
-        prex.opt["portsmap"] = []
-        prex.opt["hostenv"] = ""
-        prex.opt["cwd"] = "/"
-        prex.opt["cmd"] = "/bin/bash"
+        prex.opt = {
+            "env": [],
+            "kernel": "",
+            "netcoop": False,
+            "portsmap": [],
+            "hostenv": "",
+            "cwd": "/",
+            "cmd": "/bin/bash",
+        }
+
         prex._kernel = ""
         prex.container_root = ""
         status = prex.run("CONTAINERID")
@@ -3780,13 +3776,10 @@ class RuncEngineTestCase(unittest.TestCase):
         mock_realpath.return_value = "/.udocker/containers/aaaaaa/ROOT"
         mock_node.return_value = "nodename.local"
         rcex = udocker.RuncEngine(mock_local)
-        rcex.opt = dict()
-        rcex._container_specjson = dict()
-        rcex._container_specjson["root"] = dict()
-        rcex._container_specjson["process"] = dict()
-        rcex._container_specjson["linux"] = dict()
-        rcex._container_specjson["linux"]["uidMappings"] = dict()
-        rcex._container_specjson["linux"]["gidMappings"] = dict()
+        rcex.opt = {}
+        rcex._container_specjson = {"root": {}, "process": {}, "linux": {}}
+        rcex._container_specjson["linux"]["uidMappings"] = {}
+        rcex._container_specjson["linux"]["gidMappings"] = {}
         rcex.opt["cwd"] = "/"
         rcex.opt["env"] = []
         rcex.opt["cmd"] = "bash"
@@ -3798,13 +3791,10 @@ class RuncEngineTestCase(unittest.TestCase):
         mock_realpath.return_value = "/.udocker/containers/aaaaaa/ROOT"
         mock_node.return_value = "nodename.local"
         rcex = udocker.RuncEngine(mock_local)
-        rcex.opt = dict()
-        rcex._container_specjson = dict()
-        rcex._container_specjson["root"] = dict()
-        rcex._container_specjson["process"] = dict()
-        rcex._container_specjson["linux"] = dict()
-        rcex._container_specjson["linux"]["uidMappings"] = dict()
-        rcex._container_specjson["linux"]["gidMappings"] = dict()
+        rcex.opt = {}
+        rcex._container_specjson = {"root": {}, "process": {}, "linux": {}}
+        rcex._container_specjson["linux"]["uidMappings"] = {}
+        rcex._container_specjson["linux"]["gidMappings"] = {}
         rcex.opt["cwd"] = "/"
         rcex.opt["env"] = []
         rcex.opt["cmd"] = "bash"
@@ -3816,13 +3806,10 @@ class RuncEngineTestCase(unittest.TestCase):
         mock_realpath.return_value = "/.udocker/containers/aaaaaa/ROOT"
         mock_node.return_value = "nodename.local"
         rcex = udocker.RuncEngine(mock_local)
-        rcex.opt = dict()
-        rcex._container_specjson = dict()
-        rcex._container_specjson["root"] = dict()
-        rcex._container_specjson["process"] = dict()
-        rcex._container_specjson["linux"] = dict()
-        rcex._container_specjson["linux"]["uidMappings"] = dict()
-        rcex._container_specjson["linux"]["gidMappings"] = dict()
+        rcex.opt = {}
+        rcex._container_specjson = {"root": {}, "process": {}, "linux": {}}
+        rcex._container_specjson["linux"]["uidMappings"] = {}
+        rcex._container_specjson["linux"]["gidMappings"] = {}
         rcex.opt["cwd"] = "/"
         rcex.opt["env"] = ["AA=aa", "BB=bb"]
         rcex.opt["cmd"] = "bash"
@@ -3834,13 +3821,10 @@ class RuncEngineTestCase(unittest.TestCase):
         mock_realpath.return_value = "/.udocker/containers/aaaaaa/ROOT"
         mock_node.return_value = "nodename.local"
         rcex = udocker.RuncEngine(mock_local)
-        rcex.opt = dict()
-        rcex._container_specjson = dict()
-        rcex._container_specjson["root"] = dict()
-        rcex._container_specjson["process"] = dict()
-        rcex._container_specjson["linux"] = dict()
-        rcex._container_specjson["linux"]["uidMappings"] = dict()
-        rcex._container_specjson["linux"]["gidMappings"] = dict()
+        rcex.opt = {}
+        rcex._container_specjson = {"root": {}, "process": {}, "linux": {}}
+        rcex._container_specjson["linux"]["uidMappings"] = {}
+        rcex._container_specjson["linux"]["gidMappings"] = {}
         rcex.opt["cwd"] = "/"
         rcex.opt["env"] = ["=aa", "BB=bb"]
         rcex.opt["cmd"] = "bash"
@@ -3854,13 +3838,10 @@ class RuncEngineTestCase(unittest.TestCase):
         mock_getuid.return_value = 10000
         mock_getgid.return_value = 10000
         rcex = udocker.RuncEngine(mock_local)
-        rcex.opt = dict()
-        rcex._container_specjson = dict()
-        rcex._container_specjson["root"] = dict()
-        rcex._container_specjson["process"] = dict()
-        rcex._container_specjson["linux"] = dict()
-        rcex._container_specjson["linux"]["uidMappings"] = dict()
-        rcex._container_specjson["linux"]["gidMappings"] = dict()
+        rcex.opt = {}
+        rcex._container_specjson = {"root": {}, "process": {}, "linux": {}}
+        rcex._container_specjson["linux"]["uidMappings"] = {}
+        rcex._container_specjson["linux"]["gidMappings"] = {}
         rcex._container_specjson["linux"]["uidMappings"]["XXX"] = 0
         rcex._container_specjson["linux"]["gidMappings"]["XXX"] = 0
         rcex.opt["cwd"] = "/"
@@ -3878,21 +3859,19 @@ class RuncEngineTestCase(unittest.TestCase):
         self._init()
         mock_msg.reset_mock()
         rcex = udocker.RuncEngine(mock_local)
-        rcex.opt = dict()
+        rcex.opt = {}
         rcex._uid_check()
         self.assertFalse(mock_msg.called)
 
         mock_msg.reset_mock()
         rcex = udocker.RuncEngine(mock_local)
-        rcex.opt = dict()
-        rcex.opt["user"] = "root"
+        rcex.opt = {"user": "root"}
         rcex._uid_check()
         self.assertFalse(mock_msg.called)
 
         mock_msg.reset_mock()
         rcex = udocker.RuncEngine(mock_local)
-        rcex.opt = dict()
-        rcex.opt["user"] = "user01"
+        rcex.opt = {"user": "user01"}
         rcex._uid_check()
         self.assertTrue(mock_msg.called)
 
@@ -3919,8 +3898,7 @@ class RuncEngineTestCase(unittest.TestCase):
 
         # ro
         rcex = udocker.RuncEngine(mock_local)
-        rcex._container_specjson = dict()
-        rcex._container_specjson["mounts"] = []
+        rcex._container_specjson = {"mounts": []}
         status = rcex._add_mount_spec("/HOSTDIR", "/CONTDIR")
         mount = rcex._container_specjson["mounts"][0]
         self.assertEqual(mount["destination"], "/CONTDIR")
@@ -3929,8 +3907,7 @@ class RuncEngineTestCase(unittest.TestCase):
 
         # rw
         rcex = udocker.RuncEngine(mock_local)
-        rcex._container_specjson = dict()
-        rcex._container_specjson["mounts"] = []
+        rcex._container_specjson = {"mounts": []}
         status = rcex._add_mount_spec("/HOSTDIR", "/CONTDIR", True)
         mount = rcex._container_specjson["mounts"][0]
         self.assertEqual(mount["destination"], "/CONTDIR")
@@ -3942,8 +3919,7 @@ class RuncEngineTestCase(unittest.TestCase):
         """Test12 RuncEngine()._del_mount_spec()."""
         self._init()
         rcex = udocker.RuncEngine(mock_local)
-        rcex._container_specjson = dict()
-        rcex._container_specjson["mounts"] = []
+        rcex._container_specjson = {"mounts": []}
         mount = {"destination": "/CONTDIR",
                  "type": "none",
                  "source": "/HOSTDIR",
@@ -3955,8 +3931,7 @@ class RuncEngineTestCase(unittest.TestCase):
         self.assertEqual(len(rcex._container_specjson["mounts"]), 1)
 
         rcex = udocker.RuncEngine(mock_local)
-        rcex._container_specjson = dict()
-        rcex._container_specjson["mounts"] = []
+        rcex._container_specjson = {"mounts": []}
         mount = {"destination": "/XXXX",
                  "type": "none",
                  "source": "/HOSTDIR",
@@ -3968,8 +3943,7 @@ class RuncEngineTestCase(unittest.TestCase):
         self.assertEqual(len(rcex._container_specjson["mounts"]), 1)
 
         rcex = udocker.RuncEngine(mock_local)
-        rcex._container_specjson = dict()
-        rcex._container_specjson["mounts"] = []
+        rcex._container_specjson = {"mounts": []}
         mount = {"destination": "/CONTDIR",
                  "type": "none",
                  "source": "XXXX",
@@ -4759,8 +4733,7 @@ class LocalRepositoryTestCase(unittest.TestCase):
         udocker.Config.layersdir = ""
         udocker.Config.containersdir = ""
         udocker.FileUtil = mock.MagicMock()
-        localrepo = udocker.LocalRepository(topdir_path)
-        return localrepo
+        return udocker.LocalRepository(topdir_path)
 
     @classmethod
     def setUpClass(cls):

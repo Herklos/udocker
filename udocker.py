@@ -466,17 +466,11 @@ class HostInfo(object):
             machine = platform.machine()
             bits = platform.architecture()[0]
             if machine == "x86_64":
-                if bits == "32bit":
-                    arch = "i386"
-                else:
-                    arch = "amd64"
+                arch = "i386" if bits == "32bit" else "amd64"
             elif machine in ("i386", "i486", "i586", "i686"):
                 arch = "i386"
             elif machine.startswith("arm") or machine.startswith("aarch"):
-                if bits == "32bit":
-                    arch = "arm"
-                else:
-                    arch = "arm64"
+                arch = "arm" if bits == "32bit" else "arm64"
         except (NameError, AttributeError):
             pass
         return arch
@@ -514,9 +508,7 @@ class HostInfo(object):
         elif isinstance(arg, list):
             arg_list = arg
         out = Uprocess().get_output([executable] + arg_list + ["--help"])
-        if out and search_option in re.split(r"[=|\*\[\]\n,; ]*", out):
-            return True
-        return False
+        return bool(out and search_option in re.split(r"[=|\*\[\]\n,; ]*", out))
 
     def termsize(self):
         """Get guest operating system terminal size"""
@@ -702,7 +694,7 @@ class KeyStore(object):
     def __init__(self, keystore_file):
         """Initialize keystone"""
         self.keystore_file = keystore_file
-        self.credential = dict()
+        self.credential = {}
 
     def _verify_keystore(self):
         """Verify the keystore file and directory"""
@@ -919,7 +911,7 @@ class ChkSUM(object):
     """Checksumming for files"""
 
     def __init__(self):
-        self._algorithms = dict()
+        self._algorithms = {}
         try:
             dummy = hashlib.sha256()
             self._algorithms["sha256"] = self._hashlib_sha256
@@ -1081,10 +1073,10 @@ class FileUtil(object):
         filename = os.path.realpath(filename)
         if os.path.isdir(filename):
             filename += '/'
-        for safe_prefix in FileUtil.safe_prefixes:
-            if filename.startswith(safe_prefix):
-                return True
-        return False
+        return any(
+            filename.startswith(safe_prefix)
+            for safe_prefix in FileUtil.safe_prefixes
+        )
 
     def chown(self, uid=0, gid=0, recursive=False):
         """Change ownership of file or directory"""
@@ -1106,16 +1098,18 @@ class FileUtil(object):
         """chmod file or directory"""
         try:
             filestat = os.lstat(filename).st_mode
-            if stat.S_ISREG(filestat) and filemode:
+            if (
+                stat.S_ISREG(filestat)
+                and filemode
+                or not stat.S_ISREG(filestat)
+                and (not stat.S_ISDIR(filestat) or not dirmode)
+                and not (stat.S_ISLNK(filestat) and filemode)
+                and filemode
+            ):
                 mode = (stat.S_IMODE(filestat) & mask) | filemode
                 os.chmod(filename, mode)
-            elif stat.S_ISDIR(filestat) and dirmode:
+            elif not stat.S_ISREG(filestat) and stat.S_ISDIR(filestat) and dirmode:
                 mode = (stat.S_IMODE(filestat) & mask) | dirmode
-                os.chmod(filename, mode)
-            elif stat.S_ISLNK(filestat) and filemode:
-                pass
-            elif filemode:
-                mode = (stat.S_IMODE(filestat) & mask) | filemode
                 os.chmod(filename, mode)
         except OSError:
             Msg().err("Error: changing permissions of:", filename, l=Msg.VER)
@@ -1175,7 +1169,7 @@ class FileUtil(object):
         elif self.uid() != HostInfo.uid:
             Msg().err("Error: delete not owner: ", self.filename)
             return False
-        elif (not force) and (not self._is_safe_prefix(self.filename)):
+        elif not (force or self._is_safe_prefix(self.filename)):
             Msg().err("Error: delete outside of directory tree: ",
                       self.filename)
             return False
@@ -1186,10 +1180,7 @@ class FileUtil(object):
                 Msg().err("Error: deleting file: ", self.filename)
                 return False
         elif os.path.isdir(self.filename):
-            if recursive:
-                status = self._removedir()
-            else:
-                status = self.rmdir()
+            status = self._removedir() if recursive else self.rmdir()
             if not status:
                 Msg().err("Error: deleting directory: ", self.filename)
                 return False
@@ -1206,10 +1197,8 @@ class FileUtil(object):
             if Msg.level >= Msg.VER:
                 verbose = 'v'
             cmd = ["tar", "t" + verbose + "f", self.filename]
-            if Uprocess().call(cmd, stderr=Msg.chlderr, stdout=Msg.chlderr,
-                               close_fds=True):
-                return False
-            return True
+            return not Uprocess().call(cmd, stderr=Msg.chlderr, stdout=Msg.chlderr,
+                               close_fds=True)
 
     def tar(self, tarfile, sourcedir=None):
         """Create a tar file for a given sourcedir
@@ -1427,7 +1416,7 @@ class FileUtil(object):
             return self._stream2file(dest_filename, mode)
         elif self.filename != '-' and dest_filename == '-':
             return self._file2stream()
-        elif self.filename != '-' and dest_filename != '-':
+        elif self.filename != '-':
             return self._file2file(dest_filename, mode)
         else:
             return False
@@ -1548,7 +1537,7 @@ class UdockerTools(object):
         self._tarball = Config.tarball  # URL or file
         self._installinfo = Config.installinfo  # URL or file
         self._tarball_release = Config.tarball_release
-        self._install_json = dict()
+        self._install_json = {}
         self.curl = GetURL()
 
     def _instructions(self):
@@ -1662,10 +1651,7 @@ class UdockerTools(object):
             return False
         FileUtil(self.localrepo.topdir).chmod()
         self.localrepo.create_repo()
-        if Msg.level >= Msg.VER:
-            extract = "-xvzf"
-        else:
-            extract = "-xzf"
+        extract = "-xvzf" if Msg.level >= Msg.VER else "-xzf"
         cmd = ["tar", "-C", self.localrepo.bindir, "--strip-components=2",
                "--overwrite", extract, tarball_file, "udocker_dir/bin"]
         FileUtil(self.localrepo.bindir).rchmod()
@@ -1681,9 +1667,7 @@ class UdockerTools(object):
         status = Uprocess().call(cmd, close_fds=True, stderr=Msg.chlderr,
                                  stdout=Msg.chlderr)
         FileUtil(self.localrepo.libdir).rchmod()
-        if status:
-            return False
-        return True
+        return not status
 
     def _get_mirrors(self, mirrors):
         """Get shuffled list of tarball mirrors"""
@@ -1733,7 +1717,7 @@ class UdockerTools(object):
         """Get the udocker tools tarball and install the binaries"""
         if self.is_available() and not force:
             return True
-        elif not self._autoinstall and not force:
+        elif not (self._autoinstall or force):
             Msg().err("Warning: installation missing and autoinstall disabled",
                       l=Msg.WAR)
             return None
@@ -1882,9 +1866,7 @@ class ElfPatcher(object):
     def check_container_path(self):
         """verify if path to container is ok"""
         last_path = self.get_patch_last_path()
-        if last_path and last_path != self._container_dir:
-            return False
-        return True
+        return not last_path or last_path == self._container_dir
 
     def get_patch_last_time(self):
         """get time in seconds of last full patch of container"""
@@ -1939,8 +1921,8 @@ class ElfPatcher(object):
         ld_data = FileUtil(self._container_ld_so_orig).getdata()
         if not ld_data:
             ld_data = FileUtil(elf_loader).getdata()
-            if not ld_data:
-                return False
+        if not ld_data:
+            return False
         nul_etc = "\x00/\x00\x00\x00\x00\x00\x00\x00\x00\x00"
         nul_lib = "\x00/\x00\x00\x00"
         nul_usr = "\x00/\x00\x00\x00"
@@ -1971,7 +1953,7 @@ class ElfPatcher(object):
         """Get get directories from container ld.so.cache"""
         cmd = ["ldconfig", "-p", "-C", "%s/%s" % (self._container_root,
                                                   Config.ld_so_cache)]
-        ld_dict = dict()
+        ld_dict = {}
         ld_data = Uprocess().get_output(cmd)
         if not ld_data:
             return []
@@ -1995,9 +1977,8 @@ class ElfPatcher(object):
                     if not os.access(f_path, os.R_OK):
                         continue
                     elif os.path.isfile(f_path):
-                        if self._shlib.match(f_name):
-                            if dir_path not in ld_list:
-                                ld_list.append(dir_path)
+                        if self._shlib.match(f_name) and dir_path not in ld_list:
+                            ld_list.append(dir_path)
                 except OSError:
                     continue
         return ld_list
@@ -2082,20 +2063,15 @@ class NixAuthentication(object):
                 re.match("^\\d+$", wanted_user)):
             wanted_uid = str(wanted_user)
             wanted_user = ""
-        if wanted_uid:
-            try:
+        try:
+            if wanted_uid:
                 usr = pwd.getpwuid(int(wanted_uid))
-            except (IOError, OSError, KeyError):
-                return ("", "", "", "", "", "")
-            return (str(usr.pw_name), str(usr.pw_uid), str(usr.pw_gid),
-                    str(usr.pw_gecos), usr.pw_dir, usr.pw_shell)
-        else:
-            try:
+            else:
                 usr = pwd.getpwnam(wanted_user)
-            except (IOError, OSError, KeyError):
-                return ("", "", "", "", "", "")
-            return (str(usr.pw_name), str(usr.pw_uid), str(usr.pw_gid),
-                    str(usr.pw_gecos), usr.pw_dir, usr.pw_shell)
+        except (IOError, OSError, KeyError):
+            return ("", "", "", "", "", "")
+        return (str(usr.pw_name), str(usr.pw_uid), str(usr.pw_gid),
+                str(usr.pw_gecos), usr.pw_dir, usr.pw_shell)
 
     def _get_group_from_host(self, wanted_group):
         """get group information from the host /etc/group"""
@@ -2104,18 +2080,14 @@ class NixAuthentication(object):
                 re.match("^\\d+$", wanted_group)):
             wanted_gid = str(wanted_group)
             wanted_group = ""
-        if wanted_gid:
-            try:
+        try:
+            if wanted_gid:
                 hgr = grp.getgrgid(int(wanted_gid))
-            except (IOError, OSError, KeyError):
-                return ("", "", "")
-            return (str(hgr.gr_name), str(hgr.gr_gid), str(hgr.gr_mem))
-        else:
-            try:
+            else:
                 hgr = grp.getgrnam(wanted_group)
-            except (IOError, OSError, KeyError):
-                return ("", "", "")
-            return (str(hgr.gr_name), str(hgr.gr_gid), str(hgr.gr_mem))
+        except (IOError, OSError, KeyError):
+            return ("", "", "")
+        return (str(hgr.gr_name), str(hgr.gr_gid), str(hgr.gr_mem))
 
     def _get_user_from_file(self, wanted_user):
         """Get user from a passwd file"""
@@ -2221,14 +2193,18 @@ class FileBind(object):
 
     def setup(self):
         """Prepare container for FileBind"""
-        if not os.path.isdir(self.container_orig_dir):
-            if not FileUtil(self.container_orig_dir).mkdir():
-                Msg().err("Error: creating dir:", self.container_orig_dir)
-                return False
-        if not os.path.isdir(self.container_bind_dir):
-            if not FileUtil(self.container_bind_dir).mkdir():
-                Msg().err("Error: creating dir:", self.container_bind_dir)
-                return False
+        if (
+            not os.path.isdir(self.container_orig_dir)
+            and not FileUtil(self.container_orig_dir).mkdir()
+        ):
+            Msg().err("Error: creating dir:", self.container_orig_dir)
+            return False
+        if (
+            not os.path.isdir(self.container_bind_dir)
+            and not FileUtil(self.container_bind_dir).mkdir()
+        ):
+            Msg().err("Error: creating dir:", self.container_bind_dir)
+            return False
         return True
 
     def restore(self, force=False):
@@ -2313,7 +2289,7 @@ class MountPoint(object):
     def __init__(self, localrepo, container_id):
         self.localrepo = localrepo               # LocalRepository object
         self.container_id = container_id         # Container id
-        self.mountpoints = dict()
+        self.mountpoints = {}
         self.container_dir = \
             os.path.realpath(self.localrepo.cd_container(container_id))
         self.container_root = self.container_dir + "/ROOT"
@@ -2322,10 +2298,12 @@ class MountPoint(object):
 
     def setup(self):
         """Prepare container for mountpoints"""
-        if not os.path.isdir(self.mountpoints_orig_dir):
-            if not FileUtil(self.mountpoints_orig_dir).mkdir():
-                Msg().err("Error: creating dir:", self.mountpoints_orig_dir)
-                return False
+        if (
+            not os.path.isdir(self.mountpoints_orig_dir)
+            and not FileUtil(self.mountpoints_orig_dir).mkdir()
+        ):
+            Msg().err("Error: creating dir:", self.mountpoints_orig_dir)
+            return False
         return True
 
     def add(self, cont_path):
@@ -2470,7 +2448,7 @@ class ExecutionEngineCommon(object):
 
     def _get_portsmap(self, by_container=True):
         """List of TCP/IP ports mapped indexed by container port"""
-        indexed_portmap = dict()
+        indexed_portmap = {}
         for portmap in self.opt["portsmap"]:
             pmap = portmap.split(':')
             try:
@@ -2505,9 +2483,11 @@ class ExecutionEngineCommon(object):
                 pass
             else:
                 if port_number < 1024:
-                    if port_number in mapped_ports.keys():
-                        if mapped_ports[port_number] >= 1024:
-                            continue
+                    if (
+                        port_number in mapped_ports.keys()
+                        and mapped_ports[port_number] >= 1024
+                    ):
+                        continue
                     exposes_priv = True
         if exposes_priv and HostInfo.uid != 0:
             Msg().err("Error: this container exposes privileged TCP/IP ports")
@@ -2542,7 +2522,7 @@ class ExecutionEngineCommon(object):
             if not clean_path:
                 clean_path = char
             else:
-                if not (char == p_char and char == '/'):
+                if char != p_char or char != '/':
                     clean_path += char
             p_char = char
         if clean_path == '/':
@@ -2665,7 +2645,7 @@ class ExecutionEngineCommon(object):
         for novolume in list(self.opt["novol"]):
             found = False
             for vol in list(self.opt["vol"]):
-                if novolume == vol or novolume == vol.split(':')[0]:
+                if novolume in [vol, vol.split(':')[0]]:
                     self.opt["vol"].remove(vol)
                     found = True
             if not found:
@@ -2676,10 +2656,7 @@ class ExecutionEngineCommon(object):
     def _check_paths(self):
         """Make sure we have a reasonable default PATH and CWD"""
         if not self._getenv("PATH"):
-            if self.opt["uid"] == '0':
-                path = Config.root_path
-            else:
-                path = Config.user_path
+            path = Config.root_path if self.opt["uid"] == '0' else Config.user_path
             self.opt["env"].append("PATH=%s" % path)
         # verify if the working directory is valid and fix it
         if not self.opt["cwd"]:
@@ -2834,7 +2811,7 @@ class ExecutionEngineCommon(object):
 
     def _validate_user_str(self, user):
         """Parse string with uid:gid or username"""
-        user_id = dict()
+        user_id = {}
         if not isinstance(user, str):
             return user_id
         if re.match("^[a-zA-Z_][a-zA-Z0-9_-]*$", user):
@@ -2855,10 +2832,7 @@ class ExecutionEngineCommon(object):
         user_id = self._validate_user_str(user)
         if not user_id:
             return (False, user_id)
-        if "uid" in user_id:
-            search_field = user_id["uid"]
-        else:
-            search_field = user_id["user"]
+        search_field = user_id["uid"] if "uid" in user_id else user_id["user"]
         if self.opt["hostauth"]:
             (self.opt["user"], self.opt["uid"], self.opt["gid"],
              self.opt["gecos"], self.opt["home"], self.opt["shell"]) = \
@@ -3025,9 +2999,8 @@ class ExecutionEngineCommon(object):
             if env_var in Config.invalid_host_env:
                 del os.environ[env_var]
                 continue
-            if not self.opt["hostenv"]:
-                if env_var not in Config.valid_host_env:
-                    del os.environ[env_var]
+            if not self.opt["hostenv"] and env_var not in Config.valid_host_env:
+                del os.environ[env_var]
 
     def _run_env_cleanup_list(self):
         """ Allow only to pass essential environment variables.
@@ -3050,7 +3023,7 @@ class ExecutionEngineCommon(object):
 
     def _run_env_get(self):
         """Get environment list"""
-        env_dict = dict()
+        env_dict = {}
         for env_pair in self.opt["env"]:
             (key, val) = env_pair.split('=', 1)
             env_dict[key] = val
@@ -3134,9 +3107,7 @@ class ExecutionEngineCommon(object):
         if not self._check_paths():
             return ""
 
-        exec_path = self._check_executable()
-
-        return exec_path
+        return self._check_executable()
 
 
 class PRootEngine(ExecutionEngineCommon):
@@ -3157,7 +3128,7 @@ class PRootEngine(ExecutionEngineCommon):
         """Set proot executable and related variables"""
         conf = Config()
         self.executable = conf.use_proot_executable
-        if self.executable != "UDOCKER" and not self.executable:
+        if not (self.executable == "UDOCKER" or self.executable):
             self.executable = FileUtil("proot").find_exec()
         if self.executable == "UDOCKER" or not self.executable:
             self.executable = ""
@@ -3251,11 +3222,7 @@ class PRootEngine(ExecutionEngineCommon):
         if not self._check_env():
             return 4
 
-        if Msg.level >= Msg.DBG:
-            proot_verbose = ["-v", '9', ]
-        else:
-            proot_verbose = []
-
+        proot_verbose = ["-v", '9', ] if Msg.level >= Msg.DBG else []
         if Config.proot_killonexit and self._has_option("--kill-on-exit"):
             proot_kill_on_exit = ["--kill-on-exit", ]
         else:
@@ -3282,9 +3249,8 @@ class PRootEngine(ExecutionEngineCommon):
 
         # execute
         self._run_banner(self.opt["cmd"][0])
-        status = subprocess.call(cmd_l, shell=False, close_fds=True,
+        return subprocess.call(cmd_l, shell=False, close_fds=True,
                                  env=os.environ.update(self._run_env_get()))
-        return status
 
 
 class RuncEngine(ExecutionEngineCommon):
@@ -3305,7 +3271,7 @@ class RuncEngine(ExecutionEngineCommon):
         """Set runc executable and related variables"""
         conf = Config()
         self.executable = conf.use_runc_executable
-        if self.executable != "UDOCKER" and not self.executable:
+        if not (self.executable == "UDOCKER" or self.executable):
             self.executable = FileUtil("runc").find_exec()
         if self.executable == "UDOCKER" or not self.executable:
             self.executable = ""
@@ -3313,12 +3279,12 @@ class RuncEngine(ExecutionEngineCommon):
             image_list = []
             if arch == "amd64":
                 image_list = ["runc-x86_64", "runc"]
-            elif arch == "i386":
-                image_list = ["runc-x86", "runc"]
-            elif arch == "arm64":
-                image_list = ["runc-arm64", "runc"]
             elif arch == "arm":
                 image_list = ["runc-arm", "runc"]
+            elif arch == "arm64":
+                image_list = ["runc-arm64", "runc"]
+            elif arch == "i386":
+                image_list = ["runc-x86", "runc"]
             f_util = FileUtil(self.localrepo.bindir)
             self.executable = f_util.find_file_in_dir(image_list)
         if not self.executable:
@@ -3461,10 +3427,7 @@ class RuncEngine(ExecutionEngineCommon):
     def _add_mount_spec(self, host_source, cont_dest, rwmode=False,
                         fstype="none", options=None):
         """Add one mount point"""
-        if rwmode:
-            mode = "rw"
-        else:
-            mode = "ro"
+        mode = "rw" if rwmode else "ro"
         mount = {"destination": cont_dest,
                  "type": fstype,
                  "source": host_source,
@@ -3712,7 +3675,7 @@ class SingularityEngine(ExecutionEngineCommon):
         """Set singularity executable and related variables"""
         conf = Config()
         self.executable = conf.use_singularity_executable
-        if self.executable != "UDOCKER" and not self.executable:
+        if not (self.executable == "UDOCKER" or self.executable):
             self.executable = FileUtil("singularity").find_exec()
         if self.executable == "UDOCKER" or not self.executable:
             self.executable = ""
@@ -3720,12 +3683,12 @@ class SingularityEngine(ExecutionEngineCommon):
             image_list = []
             if arch == "amd64":
                 image_list = ["singularity-x86_64", "singularity"]
-            elif arch == "i386":
-                image_list = ["singularity-x86", "singularity"]
-            elif arch == "arm64":
-                image_list = ["singularity-arm64", "singularity"]
             elif arch == "arm":
                 image_list = ["singularity-arm", "singularity"]
+            elif arch == "arm64":
+                image_list = ["singularity-arm64", "singularity"]
+            elif arch == "i386":
+                image_list = ["singularity-x86", "singularity"]
             f_util = FileUtil(self.localrepo.bindir)
             self.executable = f_util.find_file_in_dir(image_list)
         if not self.executable:
@@ -3761,7 +3724,7 @@ class SingularityEngine(ExecutionEngineCommon):
         """Build environment string with user specified environment in
         the form SINGULARITYENV_var=value
         """
-        singularityenv = dict()
+        singularityenv = {}
         for pair in list(self.opt["env"]):
             (key, val) = pair.split('=', 1)
             singularityenv['SINGULARITYENV_%s' % key] = val
@@ -3899,9 +3862,8 @@ class FakechrootEngine(ExecutionEngineCommon):
                 image_list = conf.fakechroot_so
             elif isinstance(conf.fakechroot_so, str):
                 image_list = [conf.fakechroot_so, ]
-            if '/' in conf.fakechroot_so:
-                if os.path.exists(conf.fakechroot_so):
-                    return os.path.realpath(conf.fakechroot_so)
+            if '/' in conf.fakechroot_so and os.path.exists(conf.fakechroot_so):
+                return os.path.realpath(conf.fakechroot_so)
         elif os.path.exists(self.container_dir + "/libfakechroot.so"):
             return self.container_dir + "/libfakechroot.so"
         else:
@@ -3917,18 +3879,18 @@ class FakechrootEngine(ExecutionEngineCommon):
                 image_list = ["%s-%s-%s-x86_64.so" % (lib, distro, version),
                               "%s-%s-x86_64.so" % (lib, distro),
                               "%s-x86_64.so" % (lib), deflib]
-            elif arch == "i386":
-                image_list = ["%s-%s-%s-x86.so" % (lib, distro, version),
-                              "%s-%s-x86.so" % (lib, distro),
-                              "%s-x86.so" % (lib), deflib]
-            elif arch == "arm64":
-                image_list = ["%s-%s-%s-arm64.so" % (lib, distro, version),
-                              "%s-%s-arm64.so" % (lib, distro),
-                              "%s-arm64.so" % (lib), deflib]
             elif arch == "arm":
                 image_list = ["%s-%s-%s-arm.so" % (lib, distro, version),
                               "%s-%s-arm.so" % (lib, distro),
                               "%s-arm.so" % (lib), deflib]
+            elif arch == "arm64":
+                image_list = ["%s-%s-%s-arm64.so" % (lib, distro, version),
+                              "%s-%s-arm64.so" % (lib, distro),
+                              "%s-arm64.so" % (lib), deflib]
+            elif arch == "i386":
+                image_list = ["%s-%s-%s-x86.so" % (lib, distro, version),
+                              "%s-%s-x86.so" % (lib, distro),
+                              "%s-x86.so" % (lib), deflib]
         f_util = FileUtil(self.localrepo.libdir)
         fakechroot_so = f_util.find_file_in_dir(image_list)
         if not fakechroot_so:
@@ -3943,8 +3905,7 @@ class FakechrootEngine(ExecutionEngineCommon):
 
     def _uid_check(self):
         """Check the uid_map string for container run command"""
-        if ("user" in self.opt and (self.opt["user"] == '0' or
-                                    self.opt["user"] == "root")):
+        if "user" in self.opt and self.opt["user"] in ['0', "root"]:
             Msg().err("Warning: this engine does not support execution as root",
                       l=Msg.WAR)
 
@@ -3952,7 +3913,7 @@ class FakechrootEngine(ExecutionEngineCommon):
         """Get the volume bindings string for fakechroot run"""
         host_volumes_list = []
         map_volumes_list = []
-        map_volumes_dict = dict()
+        map_volumes_dict = {}
         for vol in self.opt["vol"]:
             (host_path, cont_path) = self._vol_split(vol)
             if not (host_path and cont_path):
@@ -4136,8 +4097,7 @@ class FakechrootEngine(ExecutionEngineCommon):
         # execute
         self._run_banner(self.opt["cmd"][0], '#')
         cwd = self._cont2host(self.opt["cwd"])
-        status = subprocess.call(cmd_l, shell=False, close_fds=True, cwd=cwd)
-        return status
+        return subprocess.call(cmd_l, shell=False, close_fds=True, cwd=cwd)
 
 
 class NvidiaMode(object):
@@ -4346,11 +4306,10 @@ class ExecutionMode(object):
             return True
         if prev_xmode[0] in ('R', 'S') and xmode[0] != 'R':
             filebind.restore()
-        if xmode[0] == 'F':
-            if force or prev_xmode[0] in ('P', 'R', 'S'):
-                status = (FileUtil(self.container_root).links_conv(force, True,
-                                                                   orig_path)
-                          and elfpatcher.get_ld_libdirs(force))
+        if xmode[0] == 'F' and (force or prev_xmode[0] in ('P', 'R', 'S')):
+            status = (FileUtil(self.container_root).links_conv(force, True,
+                                                               orig_path)
+                      and elfpatcher.get_ld_libdirs(force))
         if xmode in ('P1', 'P2', 'F1', 'R1', 'R2', 'R3', 'S1'):
             if prev_xmode in ('P1', 'P2', 'F1', 'R1', 'R2', 'R3', 'S1'):
                 status = True
@@ -4370,16 +4329,17 @@ class ExecutionMode(object):
                           elfpatcher.patch_binaries())
             elif prev_xmode in ('F3', 'F4'):
                 status = True
-        if xmode[0] in ('P', 'R', 'S'):
-            if force or (status and prev_xmode.startswith('F')):
-                status = FileUtil(self.container_root).links_conv(force, False,
-                                                                  orig_path)
+        if xmode[0] in ('P', 'R', 'S') and (
+            force or (status and prev_xmode.startswith('F'))
+        ):
+            status = FileUtil(self.container_root).links_conv(force, False,
+                                                              orig_path)
         if status or force:
             status = FileUtil(self.container_execmode).putdata(xmode)
         if status or force:
             status = FileUtil(self.container_orig_root).putdata(
                 os.path.realpath(self.container_root))
-        if (not status) and (not force):
+        if not (status or force):
             Msg().err("Error: container setup failed")
         return bool(status)
 
@@ -4438,11 +4398,9 @@ class ContainerStructure(object):
         container_root = container_dir + "/ROOT"
         check_list = ["/lib", "/bin", "/etc", "/tmp", "/var", "/usr", "/sys",
                       "/dev", "/data", "/home", "/system", "/root", "/proc", ]
-        found = 0
-        for f_path in check_list:
-            if os.path.exists(container_root + f_path):
-                found += 1
-        return found
+        return sum(
+            1 for f_path in check_list if os.path.exists(container_root + f_path)
+        )
 
     def create_fromimage(self, imagerepo, tag):
         """Create a container from an image in the repository.
@@ -4632,10 +4590,7 @@ class ContainerStructure(object):
 
     def _dict_to_list(self, in_dict):
         """Convert dict to list"""
-        out_list = []
-        for (key, val) in in_dict.iteritems():
-            out_list.append("%s:%s" % (str(key), str(val)))
-        return out_list
+        return ["%s:%s" % (str(key), str(val)) for (key, val) in in_dict.iteritems()]
 
     def export_tofile(self, clone_file):
         """Export a container creating a tar file of the rootfs
@@ -4702,11 +4657,7 @@ class LocalRepository(object):
     """
 
     def __init__(self, topdir=None):
-        if topdir:
-            self.topdir = topdir
-        else:
-            self.topdir = Config.topdir
-
+        self.topdir = topdir if topdir else Config.topdir
         self.bindir = Config.bindir
         self.libdir = Config.libdir
         self.reposdir = Config.reposdir
@@ -4778,9 +4729,7 @@ class LocalRepository(object):
             return False
         match = re.match(
             "^[a-z0-9]+-[a-z0-9]+-[a-z0-9]+-[a-z0-9]+-[a-z0-9]+$", obj)
-        if match:
-            return True
-        return False
+        return bool(match)
 
     def protect_container(self, container_id):
         """Protect a container directory against deletion"""
@@ -4882,9 +4831,10 @@ class LocalRepository(object):
     def cd_container(self, container_id):
         """Select a container directory for further operations"""
         container_dir = self.containersdir + '/' + str(container_id)
-        if os.path.exists(container_dir):
-            if container_dir in self.get_containers_list(True):
-                return container_dir
+        if os.path.exists(
+            container_dir
+        ) and container_dir in self.get_containers_list(True):
+            return container_dir
         return ""
 
     def _symlink(self, existing_file, link_file):
@@ -4995,11 +4945,10 @@ class LocalRepository(object):
         """Select an image TAG for further operations"""
         if imagerepo and tag:
             tag_dir = self.reposdir + '/' + imagerepo + '/' + tag
-            if os.path.exists(tag_dir):
-                if self._is_tag(tag_dir):
-                    self.cur_repodir = self.reposdir + '/' + imagerepo
-                    self.cur_tagdir = self.cur_repodir + '/' + tag
-                    return self.cur_tagdir
+            if os.path.exists(tag_dir) and self._is_tag(tag_dir):
+                self.cur_repodir = self.reposdir + '/' + imagerepo
+                self.cur_tagdir = self.cur_repodir + '/' + tag
+                return self.cur_tagdir
         return ""
 
     def _find(self, filename, in_dir):
@@ -5143,16 +5092,21 @@ class LocalRepository(object):
         if not os.path.exists(self.cur_tagdir):
             return False
         directory = self.cur_tagdir
-        if (os.path.exists(directory + "/v1") and version != "v1" or
-                os.path.exists(directory + "/v2") and version != "v2"):
-            if len(os.listdir(directory)) == 1:
-                try:
-                    FileUtil(directory + "/v1").remove()
-                    FileUtil(directory + "/v2").remove()
-                except (IOError, OSError):
-                    pass
-                if os.listdir(directory):
-                    return False
+        if (
+            (
+                os.path.exists(directory + "/v1")
+                and version != "v1"
+                or os.path.exists(directory + "/v2")
+                and version != "v2"
+            )
+        ) and len(os.listdir(directory)) == 1:
+            try:
+                FileUtil(directory + "/v1").remove()
+                FileUtil(directory + "/v2").remove()
+            except (IOError, OSError):
+                pass
+            if os.listdir(directory):
+                return False
         try:
             # Create version file
             open(directory + '/' + version, 'a').close()
@@ -5162,9 +5116,9 @@ class LocalRepository(object):
 
     def _get_image_attributes_v1(self, directory):
         """Get image attributes from image directory in v1 format"""
-        files = []
         layer_list = self.load_json("ancestry")
         if layer_list:
+            files = []
             for layer_id in reversed(layer_list):
                 layer_file = directory + '/' + layer_id + ".layer"
                 if not os.path.exists(layer_file):
@@ -5220,10 +5174,11 @@ class LocalRepository(object):
             return self._get_image_attributes_v1(directory)
         elif os.path.exists(directory + "/v2"):  # if dockerhub API v1
             manifest = self.load_json("manifest")
-            if manifest and "fsLayers" in manifest:
-                return self._get_image_attributes_v2_s1(directory, manifest)
-            elif manifest and "layers" in manifest:
-                return self._get_image_attributes_v2_s2(directory, manifest)
+            if manifest:
+                if "fsLayers" in manifest:
+                    return self._get_image_attributes_v2_s1(directory, manifest)
+                elif "layers" in manifest:
+                    return self._get_image_attributes_v2_s2(directory, manifest)
         return (None, None)
 
     def save_json(self, filename, data):
@@ -5280,8 +5235,7 @@ class LocalRepository(object):
 
     def _load_structure(self, imagetagdir):
         """Scan the repository structure of a given image tag"""
-        structure = {}
-        structure["repolayers"] = dict()
+        structure = {"repolayers": {}}
         if FileUtil(imagetagdir).isdir():
             for fname in os.listdir(imagetagdir):
                 f_path = imagetagdir + '/' + fname
@@ -5292,22 +5246,24 @@ class LocalRepository(object):
                 elif len(fname) >= 64:
                     layer_id = fname.replace(".json", "").replace(".layer", "")
                     if layer_id not in structure["repolayers"]:
-                        structure["repolayers"][layer_id] = dict()
+                        structure["repolayers"][layer_id] = {}
                     if fname.endswith("json"):
                         structure["repolayers"][layer_id]["json"] = \
                             self.load_json(f_path)
                         structure["repolayers"][layer_id]["json_f"] = f_path
                         structure["has_json_f"] = True
-                    elif fname.endswith("layer"):
-                        structure["repolayers"][layer_id]["layer_f"] = f_path
-                    elif ':' in fname:
+                    elif (
+                        not fname.endswith("json")
+                        and fname.endswith("layer")
+                        or not fname.endswith("json")
+                        and not fname.endswith("layer")
+                        and ':' in fname
+                    ):
                         structure["repolayers"][layer_id]["layer_f"] = f_path
                     else:
                         Msg().err("Warning: unkwnon file in layer:", f_path,
                                   l=Msg.WAR)
-                elif fname in ("TAG", "v1", "v2", "PROTECT", "container.json"):
-                    pass
-                else:
+                elif fname not in ("TAG", "v1", "v2", "PROTECT", "container.json"):
                     Msg().err("Warning: unkwnon file in image:", f_path,
                               l=Msg.WAR)
         return structure
@@ -5371,10 +5327,12 @@ class LocalRepository(object):
                               os.readlink(layer_f)):
             Msg().err("Error: layer data file not found")
             return False
-        if "gzip" in GuestInfo('/').get_filetype(layer_f):
-            if not FileUtil(layer_f).verify_tar():
-                Msg().err("Error: layer tar verify failed:", layer_f)
-                return False
+        if (
+            "gzip" in GuestInfo('/').get_filetype(layer_f)
+            and not FileUtil(layer_f).verify_tar()
+        ):
+            Msg().err("Error: layer tar verify failed:", layer_f)
+            return False
         if layer_algorithm:
             layer_f_chksum = ChkSUM().hash(layer_f, layer_algorithm)
             if layer_f_chksum and layer_f_chksum != layer_hash:
@@ -5464,9 +5422,7 @@ class CurlHeader(object):
 
     def __init__(self):
         self.sizeonly = False
-        self.data = dict()
-        self.data["X-ND-HTTPSTATUS"] = ""
-        self.data["X-ND-CURLSTATUS"] = ""
+        self.data = {"X-ND-HTTPSTATUS": "", "X-ND-CURLSTATUS": ""}
 
     def write(self, buff):
         """Write is called by Curl()"""
@@ -5866,9 +5822,9 @@ class DockerIoAPI(object):
 
     def is_repo_name(self, imagerepo):
         """Check if name matches authorized characters for a docker repo"""
-        if imagerepo and re.match("^[a-zA-Z0-9][a-zA-Z0-9-_./:]+$", imagerepo):
-            return True
-        return False
+        return bool(
+            imagerepo and re.match("^[a-zA-Z0-9][a-zA-Z0-9-_./:]+$", imagerepo)
+        )
 
     def _get_url(self, *args, **kwargs):
         """Encapsulates the call to GetURL.get() so that authentication
@@ -5905,7 +5861,7 @@ class DockerIoAPI(object):
         elif status_code == 401:
             if "www-authenticate" in hdr.data:
                 www_authenticate = hdr.data["www-authenticate"]
-                if not "realm" in www_authenticate:
+                if "realm" not in www_authenticate:
                     return (hdr, buf)
                 elif 'error="insufficient_scope"' in www_authenticate:
                     return (hdr, buf)
@@ -5959,7 +5915,7 @@ class DockerIoAPI(object):
 
     def _split_fields(self, buf):
         """Split  fields, used in the web authentication"""
-        all_fields = dict()
+        all_fields = {}
         for field in buf.split(','):
             pair = field.split('=', 1)
             if len(pair) == 2:
@@ -6314,8 +6270,7 @@ class DockerIoAPI(object):
             return []
         self.localrepo.save_json("ancestry", ancestry)
         Msg().err("v1 layers: %s" % image_id, l=Msg.DBG)
-        files = self.get_v1_layers_all(endpoint, ancestry)
-        return files
+        return self.get_v1_layers_all(endpoint, ancestry)
 
     def _parse_imagerepo(self, imagerepo):
         """Parse imagerepo to extract registry"""
@@ -6514,11 +6469,12 @@ class CommonLocalFileApi(object):
         A file for import is a tarball of a directory tree, does not contain
         metadata. This method creates minimal metadata.
         """
-        container_json = dict()
-        container_json["id"] = layer_id
-        container_json["comment"] = comment
-        container_json["created"] = \
-            time.strftime("%Y-%m-%dT%H:%M:%S.000000000Z")
+        container_json = {
+            "id": layer_id,
+            "comment": comment,
+            "created": time.strftime("%Y-%m-%dT%H:%M:%S.000000000Z"),
+        }
+
         container_json["architecture"] = HostInfo().arch()
         container_json["os"] = HostInfo().osversion()
         layer_file = self.localrepo.layersdir + '/' + layer_id + ".layer"
@@ -6607,10 +6563,11 @@ class CommonLocalFileApi(object):
                 os.rename(tarfile, layer_file)
             except(IOError, OSError):
                 pass
-        if not os.path.exists(layer_file):
-            if not FileUtil(tarfile).copyto(layer_file):
-                Msg().err("Error: in move/copy file", tarfile)
-                return False
+        if not os.path.exists(layer_file) and not FileUtil(tarfile).copyto(
+            layer_file
+        ):
+            Msg().err("Error: in move/copy file", tarfile)
+            return False
         self.localrepo.add_image_layer(layer_file)
         self.localrepo.save_json("ancestry", [layer_id])
         container_json = self.create_container_meta(layer_id)
@@ -6628,11 +6585,10 @@ class CommonLocalFileApi(object):
         if not os.path.exists(tarfile) and tarfile != '-':
             Msg().err("Error: tar file does not exist:", tarfile)
             return False
-        if container_name:
-            if self.localrepo.get_container_id(container_name):
-                Msg().err("Error: container name already exists:",
-                          container_name)
-                return False
+        if container_name and self.localrepo.get_container_id(container_name):
+            Msg().err("Error: container name already exists:",
+                      container_name)
+            return False
         layer_id = Unique().layer_v1()
         container_json = self.create_container_meta(layer_id)
         container_id = ContainerStructure(self.localrepo).create_fromlayer(
@@ -6649,11 +6605,10 @@ class CommonLocalFileApi(object):
         if not os.path.exists(tarfile) and tarfile != '-':
             Msg().err("Error: tar file does not exist:", tarfile)
             return False
-        if container_name:
-            if self.localrepo.get_container_id(container_name):
-                Msg().err("Error: container name already exists:",
-                          container_name)
-                return False
+        if container_name and self.localrepo.get_container_id(container_name):
+            Msg().err("Error: container name already exists:",
+                      container_name)
+            return False
         container_id = ContainerStructure(self.localrepo).clone_fromfile(
             tarfile)
         if container_name:
@@ -6665,11 +6620,10 @@ class CommonLocalFileApi(object):
         copy including metadata, control files, and rootfs, The copy
         will have a new id.
         """
-        if container_name:
-            if self.localrepo.get_container_id(container_name):
-                Msg().err("Error: container name already exists:",
-                          container_name)
-                return False
+        if container_name and self.localrepo.get_container_id(container_name):
+            Msg().err("Error: container name already exists:",
+                      container_name)
+            return False
         dest_container_id = ContainerStructure(self.localrepo,
                                                container_id).clone()
         if container_name:
@@ -6699,9 +6653,7 @@ class DockerLocalFileAPI(CommonLocalFileApi):
 
     def _load_structure(self, tmp_imagedir):
         """Load the structure of a Docker image"""
-        structure = {}
-        structure["repolayers"] = dict()
-        structure["repoconfigs"] = dict()
+        structure = {"repolayers": {}, "repoconfigs": {}}
         for fname in os.listdir(tmp_imagedir):
             f_path = tmp_imagedir + '/' + fname
             if fname == "repositories":
@@ -6711,14 +6663,14 @@ class DockerLocalFileAPI(CommonLocalFileApi):
                 structure["manifest"] = \
                         self.localrepo.load_json(f_path)
             elif len(fname) >= 69 and fname.endswith(".json"):
-                structure["repoconfigs"][fname] = dict()
+                structure["repoconfigs"][fname] = {}
                 structure["repoconfigs"][fname]["json"] = \
                         self.localrepo.load_json(f_path)
                 structure["repoconfigs"][fname]["json_f"] = \
                         f_path
             elif len(fname) >= 64 and FileUtil(f_path).isdir():
                 layer_id = fname
-                structure["repolayers"][layer_id] = dict()
+                structure["repolayers"][layer_id] = {}
                 for layer_f in os.listdir(f_path):
                     layer_f_path = f_path + '/' + layer_f
                     if layer_f == "VERSION":
@@ -6848,18 +6800,21 @@ class DockerLocalFileAPI(CommonLocalFileApi):
         self.localrepo.cd_imagerepo(imagerepo, tag)
         (container_json, layer_files) = self.localrepo.get_image_attributes()
         json_file = tmp_imagedir + "/container.json"
-        if (not container_json) or \
-           (not self.localrepo.save_json(json_file, container_json)):
+        if not (
+            container_json and self.localrepo.save_json(json_file, container_json)
+        ):
             return False
         config_layer_id = str(ChkSUM().sha256(json_file))
         FileUtil(json_file).rename(tmp_imagedir + '/' +
                                    config_layer_id + ".json")
-        manifest_item = dict()
-        manifest_item["Config"] = config_layer_id + ".json"
-        manifest_item["RepoTags"] = [imagerepo + ':' + tag, ]
-        manifest_item["Layers"] = []
+        manifest_item = {
+            "Config": config_layer_id + ".json",
+            "RepoTags": [imagerepo + ':' + tag],
+            "Layers": [],
+        }
+
         if imagerepo not in structure["repositories"]:
-            structure["repositories"][imagerepo] = dict()
+            structure["repositories"][imagerepo] = {}
         parent_layer_id = ""
         for layer_f in layer_files:
             try:
@@ -6880,8 +6835,9 @@ class DockerLocalFileAPI(CommonLocalFileApi):
             else:
                 structure["repositories"][imagerepo][tag] = layer_id
             parent_layer_id = layer_id
-            if not self.localrepo.save_json(tmp_imagedir + "/"
-                                            + layer_id + "/json", json_string):
+            if not self.localrepo.save_json(
+                tmp_imagedir + "/" + parent_layer_id + "/json", json_string
+            ):
                 return False
             version_f_path = tmp_imagedir + "/" + layer_id + "/VERSION"
             if not FileUtil(version_f_path).putdata("1.0"):
@@ -6897,9 +6853,7 @@ class DockerLocalFileAPI(CommonLocalFileApi):
             os.makedirs(tmp_imagedir)
         except (IOError, OSError):
             return False
-        structure = dict()
-        structure["manifest"] = []
-        structure["repositories"] = dict()
+        structure = {"manifest": [], "repositories": {}}
         status = False
         for (imagerepo, tag) in imagetag_list:
             status = self._save_image(imagerepo, tag, structure, tmp_imagedir)
@@ -6928,9 +6882,7 @@ class OciLocalFileAPI(CommonLocalFileApi):
 
     def _load_structure(self, tmp_imagedir):
         """Load OCI image structure"""
-        structure = {}
-        structure["repolayers"] = dict()
-        structure["manifest"] = dict()
+        structure = {"repolayers": {}, "manifest": {}}
         f_path = tmp_imagedir + '/'
         structure["oci-layout"] = \
                 self.localrepo.load_json(f_path + "oci-layout")
@@ -6944,7 +6896,7 @@ class OciLocalFileAPI(CommonLocalFileApi):
                 layer_algorithm = fname
                 for layer_f in os.listdir(f_path):
                     layer_id = layer_algorithm + ':' + layer_f
-                    structure["repolayers"][layer_id] = dict()
+                    structure["repolayers"][layer_id] = {}
                     structure["repolayers"][layer_id]["layer_f"] = \
                             f_path + '/' + layer_f
                     structure["repolayers"][layer_id]["layer_a"] = \
@@ -6961,9 +6913,11 @@ class OciLocalFileAPI(CommonLocalFileApi):
         except (KeyError, ValueError, TypeError):
             config_layer = ""
         try:
-            layers = []
-            for layer in structure["manifest"][imagetag]["json"]["layers"]:
-                layers.append(layer["digest"])
+            layers = [
+                layer["digest"]
+                for layer in structure["manifest"][imagetag]["json"]["layers"]
+            ]
+
             layers.reverse()
             return (config_layer, layers)
         except (KeyError, ValueError, TypeError):
@@ -6982,7 +6936,7 @@ class OciLocalFileAPI(CommonLocalFileApi):
         if self._imagerepo:
             imagerepo = self._imagerepo
         imagetag = imagerepo + ':' + tag
-        structure["manifest"][imagetag] = dict()
+        structure["manifest"][imagetag] = {}
         structure["manifest"][imagetag]["json"] = \
                 self.localrepo.load_json(structure["repolayers"]\
                 [manifest["digest"]]["layer_f"])
@@ -7195,7 +7149,7 @@ class Udocker(object):
         topdir = cmdp.get("P1")
         if cmdp.missing_options():  # syntax error
             return False
-        if not topdir or not os.path.exists(topdir):
+        if not (topdir and os.path.exists(topdir)):
             self.localrepo.setup(topdir)
             if self.localrepo.create_repo():
                 return True
@@ -7251,15 +7205,16 @@ class Udocker(object):
                 if lines == term_lines:
                     Msg().out(fmt % \
                         ("NAME", "OFFICIAL", "DESCRIPTION", "STARS"), l=Msg.INF)
-                if len(repo_list["results"]) > lines:
-                    print_lines = lines
-                else:
-                    print_lines = len(repo_list["results"])
+                print_lines = min(len(repo_list["results"]), lines)
                 lines -= print_lines
                 self._search_print_lines(repo_list, print_lines, fmt)
-            if pause and not self.dockerioapi.search_ended:
-                if raw_input("[press return or q to quit]") in ('q', 'Q', 'e', 'E'):
-                    return True
+            if (
+                pause
+                and not self.dockerioapi.search_ended
+                and raw_input("[press return or q to quit]")
+                in ('q', 'Q', 'e', 'E')
+            ):
+                return True
 
     def _list_tags(self, expression):
         """List tags for repository"""
@@ -7313,8 +7268,8 @@ class Udocker(object):
         imagefile = cmdp.get("--input=")
         if not imagefile:
             imagefile = cmdp.get("-i=")
-            if not imagefile:
-                imagefile = '-'
+        if not imagefile:
+            imagefile = '-'
         from_stdin = cmdp.get('-')
         if from_stdin:
             imagefile = '-'
@@ -7349,8 +7304,8 @@ class Udocker(object):
         imagefile = cmdp.get("--output=")
         if not imagefile:
             imagefile = cmdp.get("-o=")
-            if not imagefile:
-                imagefile = '-'
+        if not imagefile:
+            imagefile = '-'
         from_stdin = cmdp.get('-')
         imagespec_list = cmdp.get("P*")
         if from_stdin:
@@ -7359,10 +7314,9 @@ class Udocker(object):
             cmdp.get("-o")
         if cmdp.missing_options():  # syntax error
             return False
-        if imagefile != '-':
-            if os.path.exists(imagefile):
-                Msg().err("Error: output file already exists:", imagefile)
-                return False
+        if imagefile != '-' and os.path.exists(imagefile):
+            Msg().err("Error: output file already exists:", imagefile)
+            return False
         imagetag_list = []
         for imagespec in imagespec_list:
             (imagerepo, tag) = self._check_imagespec(imagespec)
@@ -7372,9 +7326,7 @@ class Udocker(object):
         if not imagefile:
             Msg().err("Error: must specify filename of image file for output")
             return False
-        if not self.dockerlocalfileapi.save(imagetag_list, imagefile):
-            return False
-        return True
+        return bool(self.dockerlocalfileapi.save(imagetag_list, imagefile))
 
     def do_import(self, cmdp):
         """
